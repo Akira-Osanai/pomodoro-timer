@@ -1,3 +1,4 @@
+// "use strict" directive to enforce stricter parsing and error handling
 "use strict";
 
 const fs = require("fs");
@@ -53,7 +54,7 @@ const systemPromptGuidelines = `ずんだもんの行動方針：
 - 自己紹介はしません。
 - ユーザとの対話はしません。
 - ずんだもんはポモドーロタイマーのナレーターとして、多様な言い回しでユーザーに休憩を促す役割を担っています。
-- ナレーションの内容は2~3文にしてください。
+- ナレーションの内容は3文から5文程度にしてください。
 - 次の文章の内容についてナレーションに取り入れてください。`;
 
 const userName = args.find(arg => arg.startsWith("name="))?.split("=")[1] || "ユーザ";
@@ -126,9 +127,11 @@ function showNotification(title, message, sound) {
   });
 }
 
-// アプリ起動時のメッセージ再生と通知
+// アプリ起動時のメッセージと初回作業メッセージを一回で送信
 (async () => {
-  const startMessage = "ずんだもんによるポモドーロタイマーアプリ、起動します";
+  const workSessionCount = 1;
+  const startMessage = `ずんだもんによるポモドーロタイマーアプリ、起動します。${userName}さん、${workSessionCount}回目の作業を開始します。`;
+  console.log(`[${getElapsedTime()}][INFO] アプリを起動します。`);
   showNotification("ポモドーロタイマー起動", startMessage, startSound);
   await synthesizeAndPlayVoice(startMessage);
 })();
@@ -137,42 +140,53 @@ function showNotification(title, message, sound) {
 let appTimeout;
 if (usageTime) {
   appTimeout = setTimeout(() => {
-    const exitMessage = "ずんだもんによるポモドーロタイマーアプリ、指定された時間で終了します";
+    const exitMessage = "ずんだもんによるポモドーロタイマーアプリ、指定された時間で終了します。お疲れ様でした。";
+    console.log(`[${getElapsedTime()}][INFO] アプリの使用時間が終了します。`);
     showNotification("ポモドーロタイマー終了", exitMessage, exitSound);
     synthesizeAndPlayVoice(exitMessage).then(() => process.exit());
   }, usageTime);
 }
-let isWorkPeriod = true;
+let isWorkPeriod = false;
 let workSessionCount = 1;
 let breakSessionCount = 1;
 const workDuration = isTestMode ? 60000 : 1500000; // テストモードでは1分、通常は25分
 const breakDuration = isTestMode ? 30000 : 300000; // テストモードでは30秒、通常は5分
 
 setInterval(async () => {
-  const enhancedPrompt = await generateVoiceMessage(isWorkPeriod);
-  console.log(`[${getElapsedTime()}][生成されたプロンプト (gpt-4o-mini)] ${enhancedPrompt}`);
-  await synthesizeAndPlayVoice(enhancedPrompt);
+  try {
+    const enhancedPrompt = await generateVoiceMessage(isWorkPeriod);
+    console.log(`[${getElapsedTime()}][生成されたプロンプト (gpt-4o-mini)] ${enhancedPrompt}`);
+    await synthesizeAndPlayVoice(enhancedPrompt);
 
-  const notificationTitle = isWorkPeriod ? "作業開始" : "休憩開始";
-  const notificationMessage = isWorkPeriod
-    ? `${userName}さん、${workSessionCount}回目の作業を開始します。`
-    : `${userName}さん、${breakSessionCount}回目の休憩を開始します。`;
-  showNotification(notificationTitle, notificationMessage);
+    const notificationTitle = isWorkPeriod ? "作業開始" : "休憩開始";
+    const notificationMessage = isWorkPeriod
+      ? `${userName}さん、${workSessionCount}回目の作業を開始します。`
+      : `${userName}さん、${breakSessionCount}回目の休憩を開始します。`;
+    showNotification(notificationTitle, notificationMessage);
 
-  isWorkPeriod = !isWorkPeriod;
-  if (isWorkPeriod) {
-    workSessionCount++;
-  } else {
-    breakSessionCount++;
+    isWorkPeriod = !isWorkPeriod;
+    if (isWorkPeriod) {
+      workSessionCount++;
+    } else {
+      breakSessionCount++;
+    }
+  } catch (error) {
+    console.error(`[${getElapsedTime()}][タイマーエラー] ${error.message}`);
   }
 }, isWorkPeriod ? workDuration : breakDuration);
 
 // プロセス終了時のメッセージ再生と通知
 process.on("SIGINT", async () => {
-  const exitMessage = "ずんだもんによるポモドーロタイマーアプリ、終了します";
-  showNotification("ポモドーロタイマー終了", exitMessage, exitSound);
-  await synthesizeAndPlayVoice(exitMessage);
-  process.exit();
+  try {
+    const exitMessage = "ずんだもんによるポモドーロタイマーアプリ、終了します。お疲れ様でした。";
+    console.log(`[${getElapsedTime()}][INFO] プロセスの終了を検知しました。`);
+    showNotification("ポモドーロタイマー終了", exitMessage, exitSound);
+    await synthesizeAndPlayVoice(exitMessage);
+  } catch (error) {
+    console.error(`[${getElapsedTime()}][終了処理エラー] ${error.message}`);
+  } finally {
+    process.exit();
+  }
 });
 
 // OSごとの通知音を取得する関数
